@@ -6,8 +6,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.core.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,10 +28,27 @@ public class SearchService {
     private static final String RECENT_KEYWORDS_KEY = "recent_keywords";
 
     @CacheEvict(cacheNames = "search", allEntries = true)
-    public void processSearch(String keyword) {
+    public void processSearch(String keyword) { // 수정
         saveOrUpdateSearchKeyword(keyword);
-        updateRealTimeRanking(keyword);
-        updateRecentKeywords(keyword);
+        updateRedisForSearch(keyword);
+    }
+
+    private void updateRedisForSearch(String keyword) {
+        stringRedisTemplate.executePipelined(new SessionCallback<Object>() { // 이건 추가
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                ZSetOperations<String, String> zOps = operations.opsForZSet();
+                ListOperations<String, String> lOps = operations.opsForList();
+
+                zOps.incrementScore(POPULAR_KEYWORDS_KEY, keyword, 1.0);
+
+                lOps.remove(RECENT_KEYWORDS_KEY, 0, keyword);
+                lOps.leftPush(RECENT_KEYWORDS_KEY, keyword);
+                lOps.trim(RECENT_KEYWORDS_KEY, 0, 9);
+
+                return null;
+            }
+        });
     }
 
     @Transactional
@@ -90,8 +106,8 @@ public class SearchService {
         updateRedisBulkOnly(increments, recent);
         CompletableFuture.runAsync(() -> upsertDbBulk(increments));
         Map<String, List<String>> snap = new HashMap<>();
-        snap.put("popular", getPopularKeywordsRaw(limit));
-        snap.put("recent", getRecentKeywordsRaw(limit));
+        snap.put("popular", getPopularKeywords(limit));
+        snap.put("recent", getRecentKeywords(limit));
         return snap;
     }
 
@@ -124,23 +140,27 @@ public class SearchService {
         }
     }
 
-    private void updateRedisBulkOnly(Map<String, Long> increments, List<String> recent) {
-        stringRedisTemplate.executePipelined((RedisConnection conn) -> {
-            var ser = stringRedisTemplate.getStringSerializer();
-            byte[] zkey = ser.serialize(POPULAR_KEYWORDS_KEY);
-            byte[] lkey = ser.serialize(RECENT_KEYWORDS_KEY);
+    private void updateRedisBulkOnly(Map<String, Long> increments, List<String> recent) { // 수정
+        stringRedisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations ops) {
+                ZSetOperations<String, String> zOps = ops.opsForZSet();
+                ListOperations<String, String> lOps = ops.opsForList();
 
-            for (Map.Entry<String, Long> e : increments.entrySet()) {
-                conn.zIncrBy(zkey, e.getValue(), ser.serialize(e.getKey()));
-            }
-            if (recent != null && !recent.isEmpty()) {
-                for (String kw : recent) {
-                    conn.lRem(lkey, 0, ser.serialize(kw));
-                    conn.lPush(lkey, ser.serialize(kw));
+                increments.forEach((keyword, delta) ->
+                        zOps.incrementScore(POPULAR_KEYWORDS_KEY, keyword, delta)
+                );
+
+                if (recent != null && !recent.isEmpty()) {
+                    for (String kw : recent) {
+                        lOps.remove(RECENT_KEYWORDS_KEY, 0, kw);
+                        lOps.leftPush(RECENT_KEYWORDS_KEY, kw);
+                    }
+                    lOps.trim(RECENT_KEYWORDS_KEY, 0, 9);
                 }
-                conn.lTrim(lkey, 0, 9);
+
+                return null;
             }
-            return null;
         });
     }
 
@@ -165,7 +185,7 @@ public class SearchService {
         stringRedisTemplate.opsForList().trim(RECENT_KEYWORDS_KEY, 0, 9);
     }
 
-    @Cacheable(value = "search", key = "'popular_keywords'")
+
     public List<String> getPopularKeywords(int limit) {
         try {
             Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
@@ -177,30 +197,8 @@ public class SearchService {
         }
     }
 
-    @Cacheable(value = "search", key = "'recent_keywords'")
+    @Cacheable(value = "search", key = "'popular_keywords'")
     public List<String> getRecentKeywords(int limit) {
-        try {
-            List<String> keywords = stringRedisTemplate.opsForList().range(RECENT_KEYWORDS_KEY, 0, limit - 1);
-            if (keywords == null) return List.of();
-            return keywords;
-        } catch (RuntimeException ex) {
-            safePurgeCorrupted();
-            return List.of();
-        }
-    }
-
-    public List<String>  getPopularKeywordsRaw(int limit) {
-        try {
-            Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
-            if (keywords == null) return List.of();
-            return new ArrayList<>(keywords);
-        } catch (RuntimeException ex) {
-            safePurgeCorrupted();
-            return List.of();
-        }
-    }
-
-    public List<String> getRecentKeywordsRaw(int limit) {
         try {
             List<String> keywords = stringRedisTemplate.opsForList().range(RECENT_KEYWORDS_KEY, 0, limit - 1);
             if (keywords == null) return List.of();
@@ -226,7 +224,7 @@ public class SearchService {
         List<String> redisResult, dbResult;
 
         startTime = System.currentTimeMillis();
-        redisResult = getPopularKeywordsRaw(10);
+        redisResult = getPopularKeywords(10);
         endTime = System.currentTimeMillis();
         long redisTime = endTime - startTime;
 
@@ -272,6 +270,7 @@ public class SearchService {
         private LocalDateTime lastUpdated;
     }
 
+    @CacheEvict(cacheNames = "search", allEntries = true)
     public void clearAllCacheFast() {
         stringRedisTemplate.delete(POPULAR_KEYWORDS_KEY);
         stringRedisTemplate.delete(RECENT_KEYWORDS_KEY);

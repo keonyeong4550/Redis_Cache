@@ -15,7 +15,7 @@ public class TestDataController {
     private SearchService searchService;
 
     @PostMapping("/generate-data")
-//    @GetMapping("/generate-data")
+//    @RequestMapping("/generate-data")
     public ResponseEntity<Map<String, Object>> generateTestData() {
         List<String> recent = List.of("도커", "쿠버네티스", "AWS", "마이크로서비스", "GraphQL");
 
