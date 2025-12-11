@@ -27,7 +27,8 @@ public class SearchService {
     private static final String POPULAR_KEYWORDS_KEY = "popular_keywords";
     private static final String RECENT_KEYWORDS_KEY = "recent_keywords";
 
-    @CacheEvict(cacheNames = "search", allEntries = true)
+//    @CacheEvict(cacheNames = "search", allEntries = true)
+    @CacheEvict(value="search", key="'recent_keywords'")
     public void processSearch(String keyword) { // 수정
         saveOrUpdateSearchKeyword(keyword);
         updateRedisForSearch(keyword);
@@ -45,6 +46,7 @@ public class SearchService {
                 lOps.remove(RECENT_KEYWORDS_KEY, 0, keyword);
                 lOps.leftPush(RECENT_KEYWORDS_KEY, keyword);
                 lOps.trim(RECENT_KEYWORDS_KEY, 0, 9);
+
 
                 return null;
             }
@@ -101,7 +103,8 @@ public class SearchService {
             return null;
         });
     }
-    @CacheEvict(cacheNames = "search", allEntries = true)
+//    @CacheEvict(cacheNames = "search", allEntries = true)
+    @CacheEvict(value="search", key="'recent_keywords'")
     public Map<String, List<String>> fastGenerateAndSnapshot(Map<String, Long> increments, List<String> recent, int limit) {
         updateRedisBulkOnly(increments, recent);
         CompletableFuture.runAsync(() -> upsertDbBulk(increments));
@@ -185,7 +188,12 @@ public class SearchService {
         stringRedisTemplate.opsForList().trim(RECENT_KEYWORDS_KEY, 0, 9);
     }
 
+    @CacheEvict(value = "search", key = "'popular_keywords'")
+    public void evictPopularCache() {
+        log.info("popular cache evicted!");
+    }
 
+    @Cacheable(value = "search", key = "'popular_keywords'")
     public List<String> getPopularKeywords(int limit) {
         try {
             Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
@@ -197,7 +205,7 @@ public class SearchService {
         }
     }
 
-    @Cacheable(value = "search", key = "'popular_keywords'")
+    @Cacheable(value = "search", key = "'recent_keywords'")
     public List<String> getRecentKeywords(int limit) {
         try {
             List<String> keywords = stringRedisTemplate.opsForList().range(RECENT_KEYWORDS_KEY, 0, limit - 1);
@@ -270,7 +278,8 @@ public class SearchService {
         private LocalDateTime lastUpdated;
     }
 
-    @CacheEvict(cacheNames = "search", allEntries = true)
+//    @CacheEvict(cacheNames = "search", allEntries = true)
+    @CacheEvict(value="search", key="'recent_keywords'")
     public void clearAllCacheFast() {
         stringRedisTemplate.delete(POPULAR_KEYWORDS_KEY);
         stringRedisTemplate.delete(RECENT_KEYWORDS_KEY);

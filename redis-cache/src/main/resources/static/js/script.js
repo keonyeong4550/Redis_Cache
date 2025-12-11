@@ -302,12 +302,28 @@ async function showRedisKeys() {
   }
 }
 
+function connectPopularSSE() {
+  const evtSource = new EventSource("/api/search/sse/popular");
+
+  evtSource.addEventListener("popularUpdate", (event) => {
+    console.log("🔥 인기검색어 변경 감지");
+    updatePopularKeywords(); // 기존 함수: 인기 검색어 다시 불러오기
+  });
+
+  evtSource.onerror = () => {
+    console.log("SSE 연결 끊김 → 재연결 시도");
+    setTimeout(connectPopularSSE, 3000);
+  };
+}
+
+
 // 전역 함수로 등록 (콘솔에서 직접 호출 가능)
 window.showRedisKeys = showRedisKeys;
 
 (async function init() {
   await loadKeywords();
-  setInterval(updatePopularKeywords, 3000);
+//  setInterval(updatePopularKeywords, 3000);
+  connectPopularSSE();
 
   // 초기 로딩 시 Redis 정보 안내
   console.log("실시간 검색어 시스템 시작!");

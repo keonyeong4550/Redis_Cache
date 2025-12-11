@@ -1,0 +1,45 @@
+***docker run -d ^
+  -v C:\Users\EZEN\IdeaProjects\redis-cache\redis.conf:/usr/local/etc/redis/redis.conf ^
+  -p 6379:6379 ^
+  redis redis-server /usr/local/etc/redis/redis.conf
+
+터미널에 위처럼 입력하여 docker 실행
+----------------------------------------------------------------
+docker 종료 방법
+
+***docker ps
+->
+C:\Users\EZEN\IdeaProjects\redis-cache>docker ps
+CONTAINER ID   IMAGE     COMMAND                   CREATED          STATUS          PORTS                                         NAMES
+03a91513838e   redis     "docker-entrypoint.s…"   12 minutes ago   Up 12 minutes   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   intelligent_keller
+
+여기서 Name 부분을 적용하여
+***docker stop intelligent_keller
+-> 정상 처리시
+intelligent_keller 출력
+
+==========================================
+Docker 사용 기준으로 Redis Keyspace 이벤트 확인
+
+현재 실행 중인 Redis 컨테이너 확인
+
+*** docker ps
+->
+CONTAINER ID   IMAGE     ...   NAMES
+03a91513838e   redis           intelligent_keller
+
+NAMES 부분 적용하여
+*** docker exec -it intelligent_keller redis-cli
+
+*** CONFIG GET notify-keyspace-events
+-> 정상
+1) "notify-keyspace-events"
+2) "AKE"
+-> 비정상
+1) "notify-keyspace-events"
+2) ""
+
+이벤트 임시 적용
+*** CONFIG SET notify-keyspace-events KEA
+확인
+*** CONFIG GET notify-keyspace-events

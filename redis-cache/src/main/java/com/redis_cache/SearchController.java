@@ -4,6 +4,7 @@ import com.redis_cache.SearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,8 @@ public class SearchController {
 
     @Autowired
     private SearchService searchService;
+    @Autowired
+    private SseService sseService;
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> search(@RequestBody Map<String, String> request) {
@@ -37,6 +40,10 @@ public class SearchController {
                         "recent_keywords", redisStatus.get("recentKeywords")
                 )
         ));
+    }
+    @GetMapping("/sse/popular")
+    public SseEmitter subscribePopular() {
+        return sseService.subscribe();
     }
 
     @GetMapping("/popular")
